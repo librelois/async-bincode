@@ -51,6 +51,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn malicious_input() {
+        let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = echo.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (stream, _) = echo.accept().await.unwrap();
+            let mut stream = AsyncBincodeStream::<_, usize, usize, _>::from(stream).for_async();
+            let (r, w) = stream.tcp_split();
+            r.forward(w).await.unwrap();
+        });
+
+        let mut client = tokio::net::TcpStream::connect(&addr).await.unwrap();
+        client.write_all(&[0, 0, 0, 1, 42, 57]).await.unwrap(); // send malicious bytes
+        let bincode_client = AsyncBincodeStream::<_, (usize, usize), (usize, usize), _>::from(client).for_async();
+        let messages: Vec<_> = bincode_client.collect().await;
+        println!("we never reach this line");
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is_err());
+    }
+
+    #[tokio::test]
     async fn lots() {
         let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = echo.local_addr().unwrap();
